@@ -14,16 +14,18 @@ void Main()
 		fileContents = file.ReadToEnd();
 	}
 	
+	var newlineChars = Environment.NewLine.ToCharArray();
+	
 	var identifier = Parse.LetterOrDigit.Many().Token().Text();
-	var separator = Parse.Char('=').Token();
+	var separator = Parse.Char('=');
 	var newline = Parse.String(Environment.NewLine).Text();
-	var value = Parse.AnyChar.Except(newline).AtLeastOnce().Text();
+	var value = Parse.Char(c => !newlineChars.Contains(c), "non-newline").AtLeastOnce().Text();
 	var beginBlock = Parse.Char('{').Token();
 	var endBlock = Parse.Char('}').Token();
 	
 	var parameter = from i in identifier
 					from _ in separator
-					from v in value
+					from v in value //.Or(Parse.Return<string>(null))
 					from _2 in newline
 					select new KeyValuePair<string, string>(i, v);
 	
@@ -55,7 +57,7 @@ void Main()
 	Title = default (Sandbox)
 	Description = No description available.
 	Mode = 0
-	Status = 1
+	Status = 
 	scene = 5
 	PARAMETERS
 	{
