@@ -16,7 +16,7 @@ void Main()
 	var destUniverse = new Universe(dest);
 	var sourceUniverse = new Universe(source);
 	
-	destUniverse.MergeVessels(sourceUniverse);
+	destUniverse.ImportVessels(sourceUniverse);
 		
 	using (var writer = new StreamWriter(destFile))
 	{
@@ -27,11 +27,6 @@ void Main()
 
 			
 	
-}
-
-Universe Merge(Universe mine, Universe theirs)
-{
-	return null;
 }
 
 public string FiletoString(string filename)
@@ -79,6 +74,7 @@ public class Universe
 	
 	public IList<Vessel> Vessels { get; set; }	
 	private SaveGameObject SaveGameObject { get; set; }
+	public Vessel ActiveVessel { get; set; }
 	
 	public Universe(SaveGameObject saveGameObject)
 	{
@@ -86,7 +82,7 @@ public class Universe
 		Prepare();
 	}
 	
-	public void MergeVessels(Universe otherUniverse)
+	public void ImportVessels(Universe otherUniverse)
 	{
 		foreach (var v in otherUniverse.Vessels)
 		{
@@ -98,6 +94,7 @@ public class Universe
 	{
 		List<Crew> crewRoster = new List<Crew>();
 		
+		//add each USED crew member to the list
 		foreach (var vessel in Vessels)
 		{
 			crewRoster.AddRange(vessel.Crew);
@@ -108,11 +105,13 @@ public class Universe
 		
 		flightState.SubObjects = new List<SaveGameObject>(); //only crew and vessels knows. just make a new collection
 		
+		//save all crew members used
 		foreach (var crewMember in crewRoster)
 		{
 			flightState.SubObjects.Add(crewMember.ToSaveGameObject());
 		}
 		
+		//save all ships (they fix their own crew indexes)
 		foreach (var vessel in Vessels)
 		{
 			flightState.SubObjects.Add(vessel.ToSaveGameObject(crewRoster));
@@ -123,19 +122,22 @@ public class Universe
 	
 	private void Prepare()
 	{
+		var flightState = (from fs in SaveGameObject.SubObjects where fs.Name == "FLIGHTSTATE" select fs).Single();
+		
 		//get all crew as loaded. needed for vessels
 		var crewList = 
-			(from flightState in SaveGameObject.SubObjects where flightState.Name == "FLIGHTSTATE"
-			from crew in flightState.SubObjects where crew.Name == "CREW"
+			(from crew in flightState.SubObjects where crew.Name == "CREW"
 			select new Crew(crew))
 			.ToList();
 			
 		//get all vessels
 		Vessels = 
-			(from flightState in SaveGameObject.SubObjects where flightState.Name == "FLIGHTSTATE"
-			from vessel in flightState.SubObjects where vessel.Name == "VESSEL"
+			(from vessel in flightState.SubObjects where vessel.Name == "VESSEL"
 			select new Vessel(crewList, vessel))
 			.ToList();
+			
+		var activeVesselIndex = int.Parse(flightState.Parameters.Where(p => p.Name == "activeVessel").Single().Value);
+		ActiveVessel = Vessels[activeVesselIndex];
 	}
 }
 
