@@ -5,70 +5,81 @@
 
 void Main()
 {
-	var sourceFile = @"C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\saves\test\persistent.sfs";
-	var destFile = @"C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\saves\default\persistent.sfs";
-
-	var saveGameParser = SetupParser();
-
-	var source = saveGameParser.Parse(FiletoString(sourceFile));
-	var dest = saveGameParser.Parse(FiletoString(destFile));
+	//parameters
+	string currentUser = "dj"; //not case sensitive
+	var localSaveGameFolder = @"C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\saves\test";
+	var userSpecificFolder = Path.Combine(localSaveGameFolder, "userdata");
+	var userSpecificFile = Path.Combine(userSpecificFolder, currentUser + ".sfs");
+	var fileToSync = "persistent.sfs"; //also try quickssave
 	
-	var destUniverse = new Universe(dest);
-	var sourceUniverse = new Universe(source);
+	//setup
+	if (!Directory.Exists(userSpecificFolder)) Directory.CreateDirectory(userSpecificFolder);
+	var fileConverter = new KspFileReader(); //loads and saves the format that sfs is. can read other file types, like .craft
 	
-	destUniverse.ImportVessels(sourceUniverse);
+	//load up my saved game
+	var saveGameData = fileConverter.ReadFile(Path.Combine(localSaveGameFolder, fileToSync)); //get data
+	var myUniverse = new Universe(saveGameData); //convert to "smart data" (understands the contents a bit)
+	
+	//clean it
+	myUniverse.RemoveVessels(v => v.IsOwnedBy(currentUser));
+	
+	//resave as the "clean" version under my usename
+	fileConverter.SaveFile(myUniverse.ToSaveGameObject(), userSpecificFile);
+
+}
+
+public class KspFileReader
+{
+	Parser<SaveGameObject> parser;
+	
+	public KspFileReader()
+	{
+		var newlineChars = Environment.NewLine.ToCharArray();
+		var identifierChars = new char[] { '_' };
 		
-	using (var writer = new StreamWriter(destFile))
-	{
-		destUniverse.ToSaveGameObject().WriteToStream(writer);
+		var identifier = Parse.Char(c => char.IsLetterOrDigit(c) || identifierChars.Contains(c) ,"identifier character").Many().Token().Text();
+		
+		var separator = Parse.String("= ");
+		var newline = Parse.String(Environment.NewLine).Text();
+		var value = Parse.Char(c => !newlineChars.Contains(c), "non-newline").Many().Text();
+		var beginBlock = Parse.Char('{').Token();
+		var endBlock = Parse.Char('}').Token();
+		
+		var parameter = from i in identifier
+						from _ in separator
+						from v in value
+						from _2 in newline
+						select new SaveGameParameter() { Name = i, Value = v};
+		
+		Parser<SaveGameObject> section = null;
+					
+		section = from sectionName in identifier
+					from _2 in beginBlock
+					from parameters in parameter.Many().Select(x => x.ToList())
+					from sections in Parse.Ref(() => section).Many().Select(x => x.ToList())
+					from _3 in endBlock
+					select new SaveGameObject() { Name = sectionName, Parameters = parameters, SubObjects = sections };
+					
+		parser = section;
 	}
-	destUniverse.Dump();
 	
-
-			
-	
-}
-
-public string FiletoString(string filename)
-{
-	using (var file = new StreamReader(filename))
+	public SaveGameObject ReadFile(string filename)
 	{
-		return file.ReadToEnd();
+		using (var file = new StreamReader(filename))
+		{
+			return parser.Parse(file.ReadToEnd());
+		}
+	}
+	
+	public void SaveFile(SaveGameObject data, string filename)
+	{
+		using (var writer = new StreamWriter(filename))
+		{
+			data.WriteToStream(writer);
+		}
 	}
 }
 
-public Parser<SaveGameObject> SetupParser()
-{
-	var newlineChars = Environment.NewLine.ToCharArray();
-	var identifierChars = new char[] { '_' };
-	
-	var identifier = Parse.Char(c => char.IsLetterOrDigit(c) || identifierChars.Contains(c) ,"identifier character").Many().Token().Text();
-	
-	var separator = Parse.String("= ");
-	var newline = Parse.String(Environment.NewLine).Text();
-	var value = Parse.Char(c => !newlineChars.Contains(c), "non-newline").Many().Text();
-	var beginBlock = Parse.Char('{').Token();
-	var endBlock = Parse.Char('}').Token();
-	
-	var parameter = from i in identifier
-					from _ in separator
-					from v in value
-					from _2 in newline
-					select new SaveGameParameter() { Name = i, Value = v};
-	
-	Parser<SaveGameObject> section = null;
-				
-	section = from sectionName in identifier
-				from _2 in beginBlock
-				from parameters in parameter.Many().Select(x => x.ToList())
-				from sections in Parse.Ref(() => section).Many().Select(x => x.ToList())
-				from _3 in endBlock
-				select new SaveGameObject() { Name = sectionName, Parameters = parameters, SubObjects = sections };
-				
-	return section;
-}
-
-//
 public class Universe
 {
 	
@@ -81,13 +92,23 @@ public class Universe
 		SaveGameObject = saveGameObject;
 		Prepare();
 	}
-	
+		
 	public void ImportVessels(Universe otherUniverse)
 	{
 		foreach (var v in otherUniverse.Vessels)
 		{
 			Vessels.Add(v);
 		}
+	}
+	
+	public void RemoveVessels(Predicate<Vessel> condition)
+	{
+		var vesselsToRemove = (
+			from v in Vessels
+			where condition(v)
+			select v).ToList();
+			
+		vesselsToRemove.ForEach(v => Vessels.Remove(v));
 	}
 	
 	public SaveGameObject ToSaveGameObject()
@@ -158,6 +179,11 @@ public class Vessel
 			from p in part.Parameters where p.Name == "crew"
 			select crewList[int.Parse(p.Value)]).ToList().ForEach(c => Crew.Add(c));
 		
+	}
+	
+	public bool IsOwnedBy(string name)
+	{
+		return o.Parameters.Where(p => p.Name == "name").Single().Value.ToUpper().StartsWith(name.ToUpper() + ":");
 	}
 	
 	public SaveGameObject ToSaveGameObject(IList<Crew> crewList)
