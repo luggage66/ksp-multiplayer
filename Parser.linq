@@ -25,7 +25,6 @@ void Main()
 	
 	//resave as the "clean" version under my usename
 	fileConverter.SaveFile(myUniverse.ToSaveGameObject(), userSpecificFile);
-
 }
 
 public class KspFileReader
